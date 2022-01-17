@@ -101,7 +101,8 @@ class DeticCascadeROIHeads(CascadeROIHeads):
         prev_pred_boxes = None
         image_sizes = [x.image_size for x in proposals]
 
-        for k in range(self.num_cascade_stages):
+        # for k in range(self.num_cascade_stages):
+        for k in range(1):
             if k > 0:
                 proposals = self._create_proposals_from_boxes(
                     prev_pred_boxes, image_sizes,
@@ -109,16 +110,16 @@ class DeticCascadeROIHeads(CascadeROIHeads):
                 if self.training and ann_type in ['box']:
                     proposals = self._match_and_label_boxes(
                         proposals, k, targets)
-            predictions = self._run_stage(features, proposals, k, 
+            predictions, box_features = self._run_stage(features, proposals, k, 
                 classifier_info=classifier_info)
             prev_pred_boxes = self.box_predictor[k].predict_boxes(
                 (predictions[0], predictions[1]), proposals)
-            head_outputs.append((self.box_predictor[k], predictions, proposals))
+            head_outputs.append((self.box_predictor[k], predictions, proposals, box_features))
         
         if self.training:
             losses = {}
             storage = get_event_storage()
-            for stage, (predictor, predictions, proposals) in enumerate(head_outputs):
+            for stage, (predictor, predictions, proposals, box_features) in enumerate(head_outputs):
                 with storage.name_scope("stage{}".format(stage)):
                     if ann_type != 'box': 
                         stage_losses = {}
@@ -151,12 +152,18 @@ class DeticCascadeROIHeads(CascadeROIHeads):
                     for s, ps in zip(scores, proposal_scores)]
             if self.one_class_per_proposal:
                 scores = [s * (s == s[:, :-1].max(dim=1)[0][:, None]).float() for s in scores]
-            predictor, predictions, proposals = head_outputs[-1]
+            predictor, predictions, proposals, box_features = head_outputs[-1]
+            box_features = [box_features]
+            # predictions[0] is the output of classification
+            # predictions[1] is the output of bounding boxes
+            # import pdb; pdb.set_trace()
+
             boxes = predictor.predict_boxes(
                 (predictions[0], predictions[1]), proposals)
             pred_instances, _ = fast_rcnn_inference(
                 boxes,
                 scores,
+                box_features,
                 image_sizes,
                 predictor.test_score_thresh,
                 predictor.test_nms_thresh,
@@ -266,6 +273,7 @@ class DeticCascadeROIHeads(CascadeROIHeads):
                 [len(p) for p in proposals], dim=0)
             for feat, p in zip(feats_per_image, proposals):
                 p.feat = feat
+        # import pdb; pdb.set_trace()
         return self.box_predictor[stage](
             box_features, 
-            classifier_info=classifier_info)
+            classifier_info=classifier_info), box_features
